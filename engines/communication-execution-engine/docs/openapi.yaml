@@ -1,0 +1,502 @@
+openapi: 3.0.3
+info:
+  title: Raspberry Pi Task Manager — Communication & Execution Engine API
+  description: |
+    Independent execution and communication backend for the Raspberry Pi Linux Task Manager.
+    Provides REST APIs for process management, hardware metrics, and real-time Server-Sent Events (SSE) streaming.
+  version: 1.0.0
+  contact:
+    name: Task Manager Project
+servers:
+  - url: /api/v1
+    description: API v1 Endpoint
+
+paths:
+  /processes:
+    get:
+      summary: List running processes
+      description: Returns a paginated and filterable list of running processes on the Raspberry Pi host.
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+          description: Page number (1-indexed)
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 100
+          description: Number of items per page
+        - name: username
+          in: query
+          schema:
+            type: string
+          description: Filter by username (e.g. 'pi', 'root')
+        - name: state
+          in: query
+          schema:
+            type: string
+            enum: [running, sleeping, stopped, zombie, idle, unknown]
+          description: Filter by process state
+        - name: search
+          in: query
+          schema:
+            type: string
+          description: Search term matching process name or command line
+        - name: sortBy
+          in: query
+          schema:
+            type: string
+            enum: [pid, ppid, name, command, username, cpu, memory, memoryUsage, state, startTime]
+            default: pid
+          description: Field to sort by
+        - name: order
+          in: query
+          schema:
+            type: string
+            enum: [asc, desc]
+            default: asc
+          description: Sort direction
+      responses:
+        '200':
+          description: List of processes retrieved successfully
+          content:
+            application/json:
+              example:
+                success: true
+                message: "Processes retrieved successfully"
+                data:
+                  processes:
+                    - pid: 2450
+                      ppid: 1
+                      name: "node"
+                      command: "node src/server.js"
+                      username: "pi"
+                      cpu: 1.8
+                      memory: 3.2
+                      memoryUsage: 33554432
+                      state: "running"
+                      startTime: "2026-11-01T12:00:00.000Z"
+                  pagination:
+                    total: 85
+                    page: 1
+                    limit: 50
+                    totalPages: 2
+                    hasNextPage: true
+                    hasPrevPage: false
+                timestamp: "2026-11-01T12:30:00.000Z"
+    post:
+      summary: Spawn a new permitted process
+      description: Creates a new background process subject to the command allowlist and security policy.
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - command
+              properties:
+                command:
+                  type: string
+                  example: "python3"
+                  description: Binary or command from allowlist
+                arguments:
+                  type: array
+                  items:
+                    type: string
+                  example: ["-m", "http.server", "8080"]
+                  description: Command line arguments
+                workingDirectory:
+                  type: string
+                  example: "/home/pi"
+                  description: Working directory within permitted paths
+                env:
+                  type: object
+                  additionalProperties:
+                    type: string
+                  example:
+                    DEBUG: "true"
+                  description: Non-sensitive environment variables
+      responses:
+        '201':
+          description: Process spawned successfully
+          content:
+            application/json:
+              example:
+                success: true
+                message: "Process started successfully"
+                data:
+                  pid: 3120
+                  name: "python3"
+                  command: "python3 -m http.server 8080"
+                  status: "running"
+                  startTime: "2026-11-01T12:35:00.000Z"
+                timestamp: "2026-11-01T12:35:00.000Z"
+        '403':
+          description: Command not permitted by allowlist or invalid working directory
+        '422':
+          description: Invalid parameters
+
+  /processes/{pid}:
+    get:
+      summary: Get details of a single process
+      parameters:
+        - name: pid
+          in: path
+          required: true
+          schema:
+            type: integer
+          description: Process ID
+      responses:
+        '200':
+          description: Process details retrieved
+          content:
+            application/json:
+              example:
+                success: true
+                message: "Process retrieved successfully"
+                data:
+                  pid: 2450
+                  ppid: 1
+                  name: "node"
+                  command: "node src/server.js"
+                  username: "pi"
+                  cpu: 1.5
+                  memory: 2.8
+                  memoryUsage: 29360128
+                  state: "running"
+                  startTime: "2026-11-01T12:00:00.000Z"
+                  priority: 0
+                timestamp: "2026-11-01T12:30:00.000Z"
+        '404':
+          description: Process not found
+    delete:
+      summary: Terminate a process
+      description: Gracefully terminates a process (SIGTERM) with controlled escalation to SIGKILL if permitted.
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      parameters:
+        - name: pid
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: signal
+          in: query
+          schema:
+            type: string
+            enum: [SIGTERM, SIGKILL, SIGINT]
+            default: SIGTERM
+      responses:
+        '200':
+          description: Process terminated successfully
+          content:
+            application/json:
+              example:
+                success: true
+                message: "Process terminated successfully"
+                data:
+                  pid: 3120
+                  terminated: true
+                  signal: "SIGTERM"
+                  escalated: false
+                timestamp: "2026-11-01T12:36:00.000Z"
+        '403':
+          description: Attempt to terminate a protected process or system backend
+        '404':
+          description: Process not found
+
+  /processes/{pid}/pause:
+    post:
+      summary: Pause a running process
+      description: Sends SIGSTOP to pause process execution.
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      parameters:
+        - name: pid
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Process paused
+          content:
+            application/json:
+              example:
+                success: true
+                message: "Process paused successfully"
+                data:
+                  pid: 3120
+                  state: "stopped"
+                  signal: "SIGSTOP"
+                timestamp: "2026-11-01T12:37:00.000Z"
+
+  /processes/{pid}/resume:
+    post:
+      summary: Resume a paused process
+      description: Sends SIGCONT to resume execution.
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      parameters:
+        - name: pid
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Process resumed
+          content:
+            application/json:
+              example:
+                success: true
+                message: "Process resumed successfully"
+                data:
+                  pid: 3120
+                  state: "running"
+                  signal: "SIGCONT"
+                timestamp: "2026-11-01T12:38:00.000Z"
+
+  /processes/{pid}/priority:
+    patch:
+      summary: Change process priority (nice value)
+      description: Adjusts process nice value from -20 (highest) to 19 (lowest).
+      security:
+        - ApiKeyAuth: []
+        - BearerAuth: []
+      parameters:
+        - name: pid
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - priority
+              properties:
+                priority:
+                  type: integer
+                  minimum: -20
+                  maximum: 19
+                  example: 5
+      responses:
+        '200':
+          description: Priority updated
+          content:
+            application/json:
+              example:
+                success: true
+                message: "Process priority updated successfully"
+                data:
+                  pid: 3120
+                  priority: 5
+                timestamp: "2026-11-01T12:39:00.000Z"
+
+  /metrics/overview:
+    get:
+      summary: System overview metrics
+      description: Returns overall CPU, RAM, disk, temperature, and uptime metrics.
+      responses:
+        '200':
+          description: Overview metrics
+          content:
+            application/json:
+              example:
+                success: true
+                message: "System overview metrics retrieved successfully"
+                data:
+                  cpuUtilization: 14.5
+                  totalRam: 1073741824
+                  usedRam: 429496729
+                  availableRam: 644245095
+                  ramUtilizationPercentage: 40.0
+                  diskTotal: 32212254720
+                  diskUsed: 12884901888
+                  diskAvailable: 19327352832
+                  diskUtilizationPercentage: 40.0
+                  cpuTemperature: 48.5
+                  cpuTemperatureStatus: "available"
+                  systemUptime: 86400
+                timestamp: "2026-11-01T12:40:00.000Z"
+
+  /metrics/cpu:
+    get:
+      summary: CPU metrics
+      description: Detailed CPU load, per-core utilization, model, and clock frequency.
+      responses:
+        '200':
+          description: CPU metrics
+          content:
+            application/json:
+              example:
+                success: true
+                message: "CPU metrics retrieved successfully"
+                data:
+                  overallCpuUtilization: 18.2
+                  perCoreUtilization:
+                    - core: 0
+                      load: 22.1
+                    - core: 1
+                      load: 14.3
+                  cpuModel: "ARM Cortex-A53"
+                  cores: 4
+                  frequencyGhz: 1.4
+                timestamp: "2026-11-01T12:41:00.000Z"
+
+  /metrics/memory:
+    get:
+      summary: Memory metrics
+      description: Detailed RAM and swap memory counters.
+      responses:
+        '200':
+          description: Memory metrics
+          content:
+            application/json:
+              example:
+                success: true
+                message: "Memory metrics retrieved successfully"
+                data:
+                  total: 1073741824
+                  used: 429496729
+                  free: 214748364
+                  available: 644245095
+                  swap:
+                    total: 536870912
+                    used: 0
+                    free: 536870912
+                timestamp: "2026-11-01T12:42:00.000Z"
+
+  /metrics/disk:
+    get:
+      summary: Disk filesystem metrics
+      description: Storage capacity and usage for mounted filesystems.
+      responses:
+        '200':
+          description: Disk metrics
+          content:
+            application/json:
+              example:
+                success: true
+                message: "Disk metrics retrieved successfully"
+                data:
+                  - filesystem: "/dev/root"
+                    mountPoint: "/"
+                    totalCapacity: 31200000000
+                    usedCapacity: 8400000000
+                    availableCapacity: 22800000000
+                    utilizationPercentage: 26.9
+                timestamp: "2026-11-01T12:43:00.000Z"
+
+  /metrics/network:
+    get:
+      summary: Network metrics
+      description: Interface status, byte counts, and bandwidth rates.
+      responses:
+        '200':
+          description: Network metrics
+          content:
+            application/json:
+              example:
+                success: true
+                message: "Network metrics retrieved successfully"
+                data:
+                  - interface: "eth0"
+                    receivedBytes: 15423000
+                    transmittedBytes: 8943000
+                    receiveRateBytesPerSec: 1024
+                    transmitRateBytesPerSec: 512
+                    status: "up"
+                timestamp: "2026-11-01T12:44:00.000Z"
+
+  /metrics/temperature:
+    get:
+      summary: CPU Temperature
+      description: Returns temperature in Celsius. Unavailable sensors return status unavailable, never fabricated.
+      responses:
+        '200':
+          description: Temperature metrics
+          content:
+            application/json:
+              example:
+                success: true
+                message: "Temperature metrics retrieved successfully"
+                data:
+                  celsius: 47.8
+                  status: "available"
+                timestamp: "2026-11-01T12:45:00.000Z"
+
+  /stream/metrics:
+    get:
+      summary: Real-time System Metrics SSE Stream
+      description: Continuous Server-Sent Events stream transmitting system metrics at a configurable interval.
+      parameters:
+        - name: interval
+          in: query
+          schema:
+            type: integer
+            default: 1000
+          description: Polling interval in milliseconds (min 200ms)
+      responses:
+        '200':
+          description: Server-Sent Events stream initiated
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                example: |
+                  event: connected
+                  data: {"clientId":"client_1_1730462000","channel":"metrics","intervalMs":1000}
+
+                  event: metrics
+                  data: {"cpuUtilization":12.5,"totalRam":1073741824,"usedRam":429496729,"availableRam":644245095,"ramUtilizationPercentage":40,"cpuTemperature":48.2}
+
+  /stream/processes:
+    get:
+      summary: Real-time Process Monitoring SSE Stream
+      description: Continuous Server-Sent Events stream transmitting the running process list.
+      parameters:
+        - name: interval
+          in: query
+          schema:
+            type: integer
+            default: 1000
+          description: Polling interval in milliseconds (min 200ms)
+      responses:
+        '200':
+          description: Server-Sent Events stream initiated
+          content:
+            text/event-stream:
+              schema:
+                type: string
+                example: |
+                  event: connected
+                  data: {"clientId":"client_2_1730462000","channel":"processes","intervalMs":1000}
+
+                  event: processes
+                  data: {"processes":[{"pid":2450,"name":"node","cpu":1.5,"memory":2.8}]}
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: x-api-key
+    BearerAuth:
+      type: http
+      scheme: bearer
