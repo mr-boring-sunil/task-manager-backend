@@ -6,20 +6,99 @@
 
 const tokenService = require('../authentication/token.service');
 const userService = require('../services/user.service');
-const rbacService = require('../authorization/rbac.service');
+const authenticationService = require('../services/authentication.service');
+const authorizationService = require('../services/authorization.service');
 const auditService = require('../audit/audit.service');
 const { dseLogger } = require('../../../shared/logger/engineLogger');
 
 class DatabaseSecurityEngineInterface {
   /**
+   * Authenticate Linux user credentials and create application session
+   * @param {string} username
+   * @param {string} password
+   * @param {object} [meta]
+   */
+  async login(username, password, meta = {}) {
+    dseLogger.debug('[DSE] Interface: login invoked');
+    return authenticationService.login(username, password, meta);
+  }
+
+  /**
+   * Validate session token
+   * @param {string} token
+   */
+  async validateSession(token) {
+    dseLogger.debug('[DSE] Interface: validateSession invoked');
+    return authenticationService.validateSession(token);
+  }
+
+  /**
+   * Revoke session (Logout)
+   * @param {string} token
+   * @param {object} [meta]
+   */
+  async logout(token, meta = {}) {
+    dseLogger.debug('[DSE] Interface: logout invoked');
+    return authenticationService.logout(token, meta);
+  }
+
+  /**
+   * Get permissions for an application role
+   * @param {string} role
+   */
+  getPermissionsForRole(role) {
+    return authorizationService.getPermissionsForRole(role);
+  }
+
+  /**
+   * Check if role has a specific permission
+   * @param {string} role
+   * @param {string} permission
+   */
+  hasPermission(role, permission) {
+    return authorizationService.hasPermission(role, permission);
+  }
+
+  /**
    * Authenticate user credentials or HTTP request
    * @param {object} credentialsOrReq - { username, password } or Express req
    */
   async authenticateUser(credentialsOrReq) {
-    dseLogger.debug('authenticateUser invoked');
+    dseLogger.debug('[DSE] Interface: authenticateUser invoked');
 
     // Case 1: Incoming Express Request object
-    if (credentialsOrReq && (credentialsOrReq.headers || credentialsOrReq.get)) {
+    if (credentialsOrReq && (credentialsOrReq.headers || credentialsOrReq.get || credentialsOrReq.cookies)) {
+      // Check session cookie first
+      const cookieHeader = credentialsOrReq.headers ? credentialsOrReq.headers.cookie : null;
+      let sessionToken = null;
+
+      if (credentialsOrReq.cookies && credentialsOrReq.cookies.taskmgr_session) {
+        sessionToken = credentialsOrReq.cookies.taskmgr_session;
+      } else if (cookieHeader) {
+        const match = cookieHeader.match(/(?:^|;\s*)taskmgr_session=([^;]+)/);
+        if (match) {
+          sessionToken = decodeURIComponent(match[1]);
+        }
+      }
+
+      if (sessionToken) {
+        try {
+          const sessionUser = await authenticationService.validateSession(sessionToken);
+          return {
+            id: sessionUser.id,
+            username: sessionUser.username,
+            role: sessionUser.role,
+            authMethod: 'session',
+            csrfToken: sessionUser.csrfToken,
+            expiresIn: sessionUser.expiresIn,
+          };
+        } catch (sessionErr) {
+          // If session token was provided but invalid/expired, throw
+          throw sessionErr;
+        }
+      }
+
+      // Check Bearer / API key or development fallback
       return tokenService.authenticateRequest(credentialsOrReq);
     }
 
@@ -44,12 +123,13 @@ class DatabaseSecurityEngineInterface {
   /**
    * Authorize user action against a target resource
    * @param {object} user - Authenticated user context
-   * @param {string} action - e.g. 'process:terminate'
+   * @param {string} action - e.g. 'process:terminate' or 'process.terminate'
    * @param {object|string|number} [resource] - e.g. { pid: 100 }
+   * @param {object} [meta] - Request metadata
    */
-  async authorizeAction(user, action, resource = null) {
-    dseLogger.debug('authorizeAction invoked', { action, username: user && user.username });
-    return rbacService.authorizeAction(user, action, resource);
+  async authorizeAction(user, action, resource = null, meta = {}) {
+    dseLogger.debug(`[DSE] Interface: authorizeAction invoked for action '${action}'`);
+    return authorizationService.authorizeAction(user, action, resource, meta);
   }
 
   /**
@@ -57,7 +137,7 @@ class DatabaseSecurityEngineInterface {
    * @param {object} event
    */
   async recordAuditEvent(event) {
-    dseLogger.debug('recordAuditEvent invoked', { action: event.action });
+    dseLogger.debug('[DSE] Interface: recordAuditEvent invoked', { action: event.action });
     return auditService.recordAuditEvent(event);
   }
 

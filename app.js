@@ -14,9 +14,11 @@ const YAML = require('yamljs');
 const serverConfig = require('./config/server.config');
 const { generalRateLimiter } = require('./engines/communication-execution-engine/middleware/rate-limit.middleware');
 const { notFoundHandler, errorHandler } = require('./engines/communication-execution-engine/middleware/error.middleware');
+const { parseCookies } = require('./engines/communication-execution-engine/middleware/auth.middleware');
 const { sendSuccess } = require('./engines/communication-execution-engine/utils/response');
 
 // Import CEE routes
+const authRoutes = require('./engines/communication-execution-engine/routes/auth.routes');
 const processRoutes = require('./engines/communication-execution-engine/routes/process.routes');
 const metricsRoutes = require('./engines/communication-execution-engine/routes/metrics.routes');
 const streamRoutes = require('./engines/communication-execution-engine/routes/stream.routes');
@@ -35,14 +37,36 @@ const createApp = () => {
     })
   );
 
-  // Cross-Origin Resource Sharing
+  // Cross-Origin Resource Sharing with credentials support
   app.use(
     cors({
-      origin: serverConfig.corsOrigin === '*' ? '*' : serverConfig.corsOrigin.split(','),
+      origin: (origin, callback) => {
+        // Allow requests with no origin (e.g. curl, test suites, same-origin)
+        if (!origin) return callback(null, true);
+        if (serverConfig.corsOrigin === '*') {
+          return callback(null, origin); // Reflect origin to allow credentials
+        }
+        const allowed = serverConfig.corsOrigin.split(',').map((o) => o.trim());
+        if (allowed.includes(origin)) {
+          return callback(null, origin);
+        }
+        return callback(null, false);
+      },
+      credentials: true,
       methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key', 'x-csrf-token', 'x-request-id'],
     })
   );
+
+  // Parse Cookie Headers into req.cookies
+  app.use((req, res, next) => {
+    if (!req.cookies && req.headers.cookie) {
+      req.cookies = parseCookies(req.headers.cookie);
+    } else if (!req.cookies) {
+      req.cookies = {};
+    }
+    next();
+  });
 
   // Request Body Parsing with strict size limits
   app.use(express.json({ limit: '100kb' }));
@@ -66,6 +90,7 @@ const createApp = () => {
   }
 
   // Mount API v1 Routes
+  app.use('/api/v1/auth', authRoutes);
   app.use('/api/v1/processes', processRoutes);
   app.use('/api/v1/metrics', metricsRoutes);
   app.use('/api/v1/stream', streamRoutes);

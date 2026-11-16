@@ -16,6 +16,28 @@ class SecurityAdapter {
     this.dse = dseInstance;
   }
 
+  async login(username, password, meta = {}, requestId = null) {
+    return interactionLogger.execute('CEE', 'DSE', 'login', async () => {
+      return this.dse.login(username, password, meta);
+    }, requestId);
+  }
+
+  async validateSession(token, requestId = null) {
+    return interactionLogger.execute('CEE', 'DSE', 'validateSession', async () => {
+      return this.dse.validateSession(token);
+    }, requestId);
+  }
+
+  async logout(token, meta = {}, requestId = null) {
+    return interactionLogger.execute('CEE', 'DSE', 'logout', async () => {
+      return this.dse.logout(token, meta);
+    }, requestId);
+  }
+
+  getPermissionsForRole(role) {
+    return this.dse.getPermissionsForRole(role);
+  }
+
   async authenticateUser(credentialsOrReq, requestId = null) {
     return interactionLogger.execute('CEE', 'DSE', 'authenticateUser', async () => {
       return this.dse.authenticateUser(credentialsOrReq);

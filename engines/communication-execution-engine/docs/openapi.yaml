@@ -12,6 +12,58 @@ servers:
     description: API v1 Endpoint
 
 paths:
+  /auth/login:
+    post:
+      summary: Authenticate Linux user credentials
+      description: Validates Linux credentials via PAM and establishes a secure session cookie.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [username, password]
+              properties:
+                username:
+                  type: string
+                  example: pi
+                password:
+                  type: string
+                  example: raspberry
+      responses:
+        '200':
+          description: Authentication successful
+        '401':
+          description: Invalid username or password
+
+  /auth/session:
+    get:
+      summary: Validate current application session
+      description: Verifies active session token from cookie.
+      responses:
+        '200':
+          description: Active session confirmed
+        '401':
+          description: Session invalid or expired
+
+  /auth/me:
+    get:
+      summary: Get current authenticated user
+      description: Returns user identity, role, and granted permissions.
+      responses:
+        '200':
+          description: User profile and permissions returned
+        '401':
+          description: Unauthorized
+
+  /auth/logout:
+    post:
+      summary: Terminate and revoke session
+      description: Revokes session in database and clears session cookies.
+      responses:
+        '200':
+          description: Logout successful
+
   /processes:
     get:
       summary: List running processes

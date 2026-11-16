@@ -47,6 +47,23 @@ class MigrationRunner {
       dseLogger.debug(`Migration ${migrationName} already applied.`);
     }
 
+    // 3. Apply 002_sessions_and_roles migration if not yet applied
+    const migration2Name = '002_sessions_and_roles';
+    const existing2 = checkStmt.get(migration2Name);
+
+    if (!existing2) {
+      const migration2Path = path.resolve(__dirname, '002_sessions_and_roles.sql');
+      if (fs.existsSync(migration2Path)) {
+        const migration2Sql = fs.readFileSync(migration2Path, 'utf8');
+        dbConn.exec(migration2Sql);
+        const recordStmt = dbConn.prepare('INSERT INTO _migrations (name, applied_at) VALUES (?, ?)');
+        recordStmt.run(migration2Name, new Date().toISOString());
+        dseLogger.info(`Applied migration: ${migration2Name}`);
+      }
+    } else {
+      dseLogger.debug(`Migration ${migration2Name} already applied.`);
+    }
+
     return true;
   }
 }

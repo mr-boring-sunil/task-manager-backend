@@ -16,10 +16,13 @@ class InteractionLogger {
    * Check if interaction logging is active
    */
   isEnabled() {
-    if (process.env.NODE_ENV === 'test' && !process.env.ENABLE_TEST_LOGS) {
+    if (process.env.ENABLE_TEST_LOGS === 'true') {
+      return true;
+    }
+    if (process.env.NODE_ENV === 'test') {
       return false;
     }
-    return this.enabled;
+    return process.env.LOG_INTERACTIONS !== 'false';
   }
 
   /**

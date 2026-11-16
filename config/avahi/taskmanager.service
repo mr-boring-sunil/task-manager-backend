@@ -1,0 +1,16 @@
+<?xml version="1.0" standalone='no'?>
+<!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+<!--
+  Raspberry Pi Task Manager — Avahi mDNS Service Definition
+  Install location on Raspberry Pi: /etc/avahi/services/taskmanager.service
+-->
+<service-group>
+  <name replace-wildcards="yes">Raspberry Pi Task Manager on %h</name>
+  <service>
+    <type>_taskmanager._tcp</type>
+    <port>5000</port>
+    <txt-record>version=1.0.0</txt-record>
+    <txt-record>path=/health</txt-record>
+    <txt-record>app=raspberry-pi-task-manager</txt-record>
+  </service>
+</service-group>

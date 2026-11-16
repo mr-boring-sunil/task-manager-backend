@@ -8,14 +8,15 @@ const express = require('express');
 const router = express.Router();
 
 const streamController = require('../controllers/stream.controller');
+const { authenticate } = require('../middleware/auth.middleware');
 
 // GET /api/v1/stream/metrics - Real-time system performance SSE stream
-router.get('/metrics', (req, res) => {
+router.get('/metrics', authenticate, (req, res) => {
   streamController.streamMetrics(req, res);
 });
 
 // GET /api/v1/stream/processes - Real-time process monitoring SSE stream
-router.get('/processes', (req, res) => {
+router.get('/processes', authenticate, (req, res) => {
   streamController.streamProcesses(req, res);
 });
 
