@@ -44,13 +44,19 @@ class ProcessLifecycle {
 
         if (child.pid) {
           child.unref(); // Detach from parent
-          resolve({
+
+          // FIX: Wait briefly so the OS registers the new PID in /proc before
+          // the caller queries the process list. Without this delay, si.processes()
+          // returns a snapshot that pre-dates the new entry.
+          const spawnResult = {
             pid: child.pid,
             name: command,
             command: [command, ...args].join(' '),
             status: PROCESS_STATES.RUNNING,
             startTime: new Date().toISOString(),
-          });
+          };
+
+          setTimeout(() => resolve(spawnResult), 300);
         }
       } catch (err) {
         reject(
