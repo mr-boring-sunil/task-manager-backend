@@ -25,55 +25,37 @@ class ProcessLifecycle {
       try {
         const combinedEnv = { ...process.env, ...env };
 
-        // Look up Linux UID and GID for the target user if running on Linux
-        let userUid = null;
-        let userGid = null;
+        // Determine working directory:
+        // Use caller cwd if specified; on Linux default to /tmp to avoid permission errors
+        // entering another user's restricted home directory (e.g. /home/sunil is 0700)
+        const effectiveCwd = cwd || (process.platform === 'linux' ? '/tmp' : process.cwd());
 
+        let spawnExecutable = command;
+        let spawnArgs = args;
+
+        // If running on Linux and a different target user is specified,
+        // execute via passwordless sudo (-n -u <targetUser> -H)
+        const currentProcessUser = process.env.USER || 'task-manager';
         if (
           targetUsername &&
           process.platform === 'linux' &&
+          process.env.NODE_ENV !== 'test' &&
+          targetUsername !== currentProcessUser &&
           /^[a-zA-Z0-9_\-\.]+$/.test(targetUsername)
         ) {
-          try {
-            const { execFileSync } = require('child_process');
-            const uStr = execFileSync('id', ['-u', targetUsername], {
-              encoding: 'utf8',
-              timeout: 1500,
-              stdio: ['ignore', 'pipe', 'ignore'],
-            }).trim();
-            const gStr = execFileSync('id', ['-g', targetUsername], {
-              encoding: 'utf8',
-              timeout: 1500,
-              stdio: ['ignore', 'pipe', 'ignore'],
-            }).trim();
-            const parsedUid = parseInt(uStr, 10);
-            const parsedGid = parseInt(gStr, 10);
-            if (!Number.isNaN(parsedUid) && !Number.isNaN(parsedGid)) {
-              userUid = parsedUid;
-              userGid = parsedGid;
-              combinedEnv.USER = targetUsername;
-              combinedEnv.LOGNAME = targetUsername;
-              combinedEnv.HOME = targetUsername === 'root' ? '/root' : `/home/${targetUsername}`;
-            }
-          } catch (idErr) {
-            // Non-fatal: if lookup fails, proceed with default execution context
-          }
+          spawnExecutable = 'sudo';
+          spawnArgs = ['-n', '-u', targetUsername, '-H', '--', command, ...args];
         }
 
         const spawnOpts = {
-          cwd: cwd || (userUid !== null && combinedEnv.HOME ? combinedEnv.HOME : process.cwd()),
+          cwd: effectiveCwd,
           env: combinedEnv,
           shell: false, // Security: Never execute through shell
           detached: true,
           stdio: ['ignore', 'pipe', 'pipe'],
         };
 
-        if (userUid !== null && userGid !== null) {
-          spawnOpts.uid = userUid;
-          spawnOpts.gid = userGid;
-        }
-
-        const child = spawn(command, args, spawnOpts);
+        const child = spawn(spawnExecutable, spawnArgs, spawnOpts);
 
         child.on('error', (err) => {
           reject(
