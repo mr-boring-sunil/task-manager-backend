@@ -14,7 +14,7 @@ const { ERROR_CODES } = require('../../../shared/errors/errorCodes');
 class PamAuthenticationAdapter {
   constructor() {
     this.helperPath = path.resolve(__dirname, 'pam-helper', 'pam_authenticator.py');
-    this.serviceName = process.env.PAM_SERVICE_NAME || 'login';
+    this.serviceName = process.env.PAM_SERVICE_NAME || 'common-auth';
     this.timeoutMs = 5000;
     this.testAuthHandler = null; // Can be set during unit/integration tests
   }

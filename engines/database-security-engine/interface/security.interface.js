@@ -81,6 +81,19 @@ class DatabaseSecurityEngineInterface {
         }
       }
 
+      // Also support session token via Authorization Bearer or x-session-token header
+      if (!sessionToken && credentialsOrReq.headers) {
+        const authHeader = credentialsOrReq.headers.authorization || credentialsOrReq.headers.Authorization;
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+          const bearer = authHeader.slice(7).trim();
+          if (bearer.length === 64 && /^[0-9a-f]+$/i.test(bearer)) {
+            sessionToken = bearer;
+          }
+        } else if (credentialsOrReq.headers['x-session-token']) {
+          sessionToken = credentialsOrReq.headers['x-session-token'];
+        }
+      }
+
       if (sessionToken) {
         try {
           const sessionUser = await authenticationService.validateSession(sessionToken);

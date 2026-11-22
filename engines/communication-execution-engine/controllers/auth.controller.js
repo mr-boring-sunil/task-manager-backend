@@ -29,13 +29,13 @@ class AuthController {
       };
 
       const result = await securityAdapter.login(username, password, meta);
-      const isProduction = process.env.NODE_ENV === 'production';
+      const isHttps = Boolean(req.secure || req.headers['x-forwarded-proto'] === 'https' || process.env.COOKIE_SECURE === 'true');
       const cookieMaxAgeMs = (result.session.expiresIn || 3600) * 1000;
 
       // 1. Set HttpOnly session cookie
       res.cookie(SESSION_COOKIE_NAME, result.token, {
         httpOnly: true,
-        secure: isProduction,
+        secure: isHttps,
         sameSite: 'lax',
         path: '/',
         maxAge: cookieMaxAgeMs,
@@ -44,7 +44,7 @@ class AuthController {
       // 2. Set CSRF token cookie (accessible by client JavaScript for x-csrf-token header)
       res.cookie(CSRF_COOKIE_NAME, result.csrfToken, {
         httpOnly: false,
-        secure: isProduction,
+        secure: isHttps,
         sameSite: 'lax',
         path: '/',
         maxAge: cookieMaxAgeMs,
@@ -68,6 +68,7 @@ class AuthController {
             expiresIn: result.session.expiresIn,
             expiresAt: result.session.expiresAt,
           },
+          token: result.token,
           csrfToken: result.csrfToken,
         },
         'Authentication successful',

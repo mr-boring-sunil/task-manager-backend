@@ -4,8 +4,9 @@ Isolated Linux PAM Authentication Helper
 Raspberry Pi Task Manager — Database & Security Engine
 
 Protocol:
-- Accepts single JSON line via STDIN: {"username": "...", "password": "...", "service": "task-manager"}
+- Accepts single JSON line via STDIN: {"username": "...", "password": "...", "service": "common-auth"}
 - Uses ctypes to invoke Linux POSIX libpam.so.0 directly.
+- Allocates memory with libc calloc and strdup returning c_void_p pointers so PAM can safely free() them.
 - Validates credentials via pam_authenticate() and account eligibility via pam_acct_mgmt().
 - Zero shell execution, zero command execution, zero /etc/shadow direct reading.
 - Securely wipes password buffer from memory immediately following authentication.
@@ -17,7 +18,7 @@ import json
 import os
 import platform
 
-def authenticate_pam(username, password, service="login"):
+def authenticate_pam(username, password, service="common-auth"):
     if platform.system() != "Linux":
         return {
             "success": False,
@@ -38,6 +39,21 @@ def authenticate_pam(username, password, service="login"):
             "message": f"Failed to load libpam: {str(e)}"
         }
 
+    # Load libc for proper memory allocation that PAM can free()
+    try:
+        libc_name = ctypes.util.find_library("c") or "libc.so.6"
+        libc = ctypes.CDLL(libc_name)
+        libc.calloc.restype = ctypes.c_void_p
+        libc.calloc.argtypes = [ctypes.c_size_t, ctypes.c_size_t]
+        libc.strdup.argtypes = [ctypes.c_char_p]
+        libc.strdup.restype = ctypes.c_void_p
+    except Exception as e:
+        return {
+            "success": False,
+            "error": "PAM_UNAVAILABLE",
+            "message": f"Failed to load libc: {str(e)}"
+        }
+
     # PAM Constants
     PAM_SUCCESS = 0
     PAM_PROMPT_ECHO_OFF = 1
@@ -53,7 +69,7 @@ def authenticate_pam(username, password, service="login"):
 
     class PamResponse(ctypes.Structure):
         _fields_ = [
-            ("resp", ctypes.c_char_p),
+            ("resp", ctypes.c_void_p),
             ("resp_retcode", ctypes.c_int)
         ]
 
@@ -64,7 +80,7 @@ def authenticate_pam(username, password, service="login"):
         ctypes.c_int,
         ctypes.c_int,
         ctypes.POINTER(ctypes.POINTER(PamMessage)),
-        ctypes.POINTER(ctypes.POINTER(PamResponse)),
+        ctypes.POINTER(ctypes.c_void_p),
         ctypes.c_void_p
     )
 
@@ -78,9 +94,11 @@ def authenticate_pam(username, password, service="login"):
 
     def conversation_callback(num_msg, msg_ptr, resp_ptr, appdata_ptr):
         try:
-            # Allocate response array
-            resp_array_type = PamResponse * num_msg
-            resps = (PamResponse * num_msg)()
+            p_mem = libc.calloc(num_msg, ctypes.sizeof(PamResponse))
+            if not p_mem:
+                return 19 # PAM_CONV_ERR
+
+            resp_array = (PamResponse * num_msg).from_address(p_mem)
 
             for i in range(num_msg):
                 m = msg_ptr[i].contents
@@ -88,36 +106,23 @@ def authenticate_pam(username, password, service="login"):
 
                 if style == PAM_PROMPT_ECHO_OFF:
                     # Password prompt
-                    resp_str = bytes(pwd_bytes)
-                    resps[i].resp = ctypes.c_char_p(resp_str)
-                    resps[i].resp_retcode = 0
+                    resp_array[i].resp = libc.strdup(bytes(pwd_bytes))
+                    resp_array[i].resp_retcode = 0
                 elif style == PAM_PROMPT_ECHO_ON:
                     # Username or other input prompt
-                    usr_bytes = username.encode("utf-8")
-                    resps[i].resp = ctypes.c_char_p(usr_bytes)
-                    resps[i].resp_retcode = 0
+                    resp_array[i].resp = libc.strdup(username.encode("utf-8"))
+                    resp_array[i].resp_retcode = 0
                 else:
-                    resps[i].resp = None
-                    resps[i].resp_retcode = 0
+                    resp_array[i].resp = None
+                    resp_array[i].resp_retcode = 0
 
-            # Allocate memory using libc malloc for PAM to free
-            libc_name = ctypes.util.find_library("c") or "libc.so.6"
-            libc = ctypes.CDLL(libc_name)
-            libc.malloc.restype = ctypes.POINTER(PamResponse)
-
-            mem = libc.malloc(ctypes.sizeof(PamResponse) * num_msg)
-            ctypes.memmove(mem, ctypes.byref(resps), ctypes.sizeof(PamResponse) * num_msg)
-            resp_ptr[0] = mem
+            resp_ptr[0] = p_mem
             return PAM_SUCCESS
         except Exception:
             return 19 # PAM_CONV_ERR
 
     conv_func = conv_func_type(conversation_callback)
     conv_struct = PamConv(conv_func, None)
-
-    pam_handle = ctypes.c_void_p()
-    service_bytes = service.encode("utf-8")
-    user_bytes = username.encode("utf-8")
 
     pam.pam_start.restype = ctypes.c_int
     pam.pam_start.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.POINTER(PamConv), ctypes.POINTER(ctypes.c_void_p)]
@@ -131,21 +136,37 @@ def authenticate_pam(username, password, service="login"):
     pam.pam_end.restype = ctypes.c_int
     pam.pam_end.argtypes = [ctypes.c_void_p, ctypes.c_int]
 
-    retval = pam.pam_start(service_bytes, user_bytes, ctypes.byref(conv_struct), ctypes.byref(pam_handle))
-    if retval != PAM_SUCCESS:
-        # Wipe password
-        for k in range(len(pwd_bytes)):
-            pwd_bytes[k] = 0
-        return {"success": False, "error": "PAM_START_FAILED", "code": retval}
+    # Candidate services to try in priority order
+    candidate_services = [service]
+    for fallback in ["common-auth", "task-manager", "sudo", "su", "login"]:
+        if fallback not in candidate_services:
+            candidate_services.append(fallback)
 
-    auth_result = pam.pam_authenticate(pam_handle, 0)
-    acct_result = PAM_SUCCESS
+    auth_result = -1
+    acct_result = -1
 
-    if auth_result == PAM_SUCCESS:
-        # Verify account is eligible to log in (expiry, permissions, etc.)
-        acct_result = pam.pam_acct_mgmt(pam_handle, 0)
+    for s_name in candidate_services:
+        pam_handle = ctypes.c_void_p()
+        s_bytes = s_name.encode("utf-8")
+        u_bytes = username.encode("utf-8")
 
-    pam.pam_end(pam_handle, auth_result)
+        retval = pam.pam_start(s_bytes, u_bytes, ctypes.byref(conv_struct), ctypes.byref(pam_handle))
+        if retval != PAM_SUCCESS:
+            continue
+
+        auth_result = pam.pam_authenticate(pam_handle, 0)
+        acct_result = PAM_SUCCESS
+
+        if auth_result == PAM_SUCCESS:
+            acct_result = pam.pam_acct_mgmt(pam_handle, 0)
+            pam.pam_end(pam_handle, auth_result)
+            if acct_result == PAM_SUCCESS:
+                break
+        else:
+            pam.pam_end(pam_handle, auth_result)
+            # If invalid credentials (error 7 PAM_AUTH_ERR), do not delay with other services
+            if auth_result == 7:
+                break
 
     # Securely wipe password bytes from memory
     for k in range(len(pwd_bytes)):
@@ -172,7 +193,7 @@ def main():
         payload = json.loads(raw_input)
         username = payload.get("username", "").strip()
         password = payload.get("password", "")
-        service = payload.get("service", "login")
+        service = payload.get("service", "common-auth")
 
         if not username or not password:
             sys.stdout.write(json.dumps({"success": False, "error": "MISSING_CREDENTIALS"}) + "\n")
