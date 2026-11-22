@@ -22,10 +22,10 @@ class NetworkCollector {
 
     return (stats || []).map((net) => ({
       interface: net.iface,
-      receivedBytes: net.rx_bytes || 0,
-      transmittedBytes: net.tx_bytes || 0,
-      receiveRateBytesPerSec: Math.round(net.rx_sec || 0),
-      transmitRateBytesPerSec: Math.round(net.tx_sec || 0),
+      receivedBytes: Math.max(0, net.rx_bytes || 0),
+      transmittedBytes: Math.max(0, net.tx_bytes || 0),
+      receiveRateBytesPerSec: Math.max(0, Math.round(net.rx_sec || 0)),
+      transmitRateBytesPerSec: Math.max(0, Math.round(net.tx_sec || 0)),
       status: ifaceMap[net.iface] || (net.operstate || 'up'),
     }));
   }

@@ -124,6 +124,8 @@ describe('Scheduling Engine Unit Tests', () => {
       expect(overview).toHaveProperty('cpuTemperature', 48.5);
       expect(overview).toHaveProperty('cpuTemperatureStatus', 'available');
       expect(overview).toHaveProperty('systemUptime');
+      expect(overview).toHaveProperty('networkRxBytesPerSec', 2048);
+      expect(overview).toHaveProperty('networkTxBytesPerSec', 512);
     });
 
     test('getTemperatureMetrics accurately marks missing sensor as unavailable (not fabricated)', async () => {

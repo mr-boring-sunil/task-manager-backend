@@ -333,6 +333,8 @@ paths:
                   cpuTemperature: 48.5
                   cpuTemperatureStatus: "available"
                   systemUptime: 86400
+                  networkRxBytesPerSec: 2048
+                  networkTxBytesPerSec: 512
                 timestamp: "2026-11-01T12:40:00.000Z"
 
   /metrics/cpu:

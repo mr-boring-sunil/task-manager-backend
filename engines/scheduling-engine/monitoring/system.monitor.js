@@ -33,11 +33,12 @@ class SystemMonitor {
 
   async getOverviewMetrics() {
     return this.getCached('overview', async () => {
-      const [load, mem, fsList, temp] = await Promise.all([
+      const [load, mem, fsList, temp, netList] = await Promise.all([
         si.currentLoad(),
         si.mem(),
         si.fsSize(),
         thermalCollector.getCpuTemperature(),
+        this.getNetworkMetrics().catch(() => []),
       ]);
 
       const rootFs = (fsList || []).find((f) => f.mount === '/' || f.mount === 'C:') || (fsList && fsList[0]) || {};
@@ -50,6 +51,14 @@ class SystemMonitor {
       const usedRam = mem.active || mem.used || 0;
       const availableRam = mem.available || mem.free || 0;
       const ramPercentage = totalRam > 0 ? Math.round((usedRam / totalRam) * 1000) / 10 : 0;
+
+      // Filter out loopback 'lo' so internal localhost traffic doesn't distort bandwidth
+      const nonLoopback = Array.isArray(netList)
+        ? netList.filter((n) => n.interface && !n.interface.toLowerCase().startsWith('lo'))
+        : [];
+      const candidateNets = nonLoopback.length > 0 ? nonLoopback : (Array.isArray(netList) ? netList : []);
+      const totalRxRate = candidateNets.reduce((sum, n) => sum + Math.max(0, n.receiveRateBytesPerSec || 0), 0);
+      const totalTxRate = candidateNets.reduce((sum, n) => sum + Math.max(0, n.transmitRateBytesPerSec || 0), 0);
 
       return {
         cpuUtilization: Math.round((load.currentLoad || 0) * 10) / 10,
@@ -64,6 +73,8 @@ class SystemMonitor {
         cpuTemperature: temp.celsius,
         cpuTemperatureStatus: temp.status,
         systemUptime: Math.round(os.uptime()),
+        networkRxBytesPerSec: totalRxRate,
+        networkTxBytesPerSec: totalTxRate,
       };
     });
   }

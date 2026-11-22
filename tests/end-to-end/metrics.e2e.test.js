@@ -55,6 +55,8 @@ describe('Metrics & SSE Stream End-to-End', () => {
     expect(res.body.data).toHaveProperty('cpuUtilization');
     expect(res.body.data).toHaveProperty('totalRam');
     expect(res.body.data).toHaveProperty('cpuTemperature', 48.5);
+    expect(res.body.data).toHaveProperty('networkRxBytesPerSec', 2048);
+    expect(res.body.data).toHaveProperty('networkTxBytesPerSec', 512);
   });
 
   test('GET /api/v1/metrics/cpu returns CPU core details', async () => {
