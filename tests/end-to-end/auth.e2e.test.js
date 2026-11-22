@@ -84,6 +84,12 @@ describe('Auth REST API End-to-End Tests', () => {
       expect(meRes.body.data.role).toBe('admin');
       expect(meRes.body.data.permissions).toContain('process.terminate');
     });
+
+    test('rejects GET /api/v1/auth/session with 401 when unauthenticated', async () => {
+      const res = await request(app).get('/api/v1/auth/session').expect(401);
+      expect(res.body.success).toBe(false);
+      expect(res.body.message).toContain('No active session');
+    });
   });
 
   describe('POST /api/v1/auth/logout', () => {

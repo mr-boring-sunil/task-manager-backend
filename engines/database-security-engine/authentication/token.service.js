@@ -152,8 +152,8 @@ class TokenService {
       }
     }
 
-    // 3. Fallback for Development Mode
-    if (securityConfig.devMode) {
+    // 3. Fallback for Development Mode (Only when explicitly enabled and never in production)
+    if (securityConfig.devMode && process.env.NODE_ENV !== 'production') {
       return {
         id: 'dev-user-0',
         username: 'pi-developer',

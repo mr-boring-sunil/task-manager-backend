@@ -7,7 +7,8 @@
 const securityAdapter = require('../adapters/security.adapter');
 const { sendSuccess } = require('../utils/response');
 const { ceeLogger } = require('../../../shared/logger/engineLogger');
-const { HTTP_STATUS } = require('../../../shared/errors/errorCodes');
+const { HTTP_STATUS, ERROR_CODES } = require('../../../shared/errors/errorCodes');
+const { UnauthorizedError } = require('../../../shared/errors/AppError');
 
 const SESSION_COOKIE_NAME = 'taskmgr_session';
 const CSRF_COOKIE_NAME = 'taskmgr_csrf';
@@ -86,6 +87,10 @@ class AuthController {
   async getSession(req, res, next) {
     try {
       const user = req.user;
+      if (!user || user.authMethod !== 'session') {
+        throw new UnauthorizedError('No active session', ERROR_CODES.UNAUTHORIZED);
+      }
+
       const permissions = securityAdapter.getPermissionsForRole(user.role);
 
       return sendSuccess(
@@ -119,6 +124,10 @@ class AuthController {
   async getMe(req, res, next) {
     try {
       const user = req.user;
+      if (!user || user.authMethod !== 'session') {
+        throw new UnauthorizedError('No active session', ERROR_CODES.UNAUTHORIZED);
+      }
+
       const permissions = securityAdapter.getPermissionsForRole(user.role);
 
       return sendSuccess(

@@ -30,7 +30,7 @@ const DEFAULT_ALLOWED_EXECUTABLES = [
 module.exports = {
   allowedExecutables: parseArray(process.env.ALLOWED_EXECUTABLES, DEFAULT_ALLOWED_EXECUTABLES),
   allowedWorkingDirs: parseArray(process.env.ALLOWED_WORKING_DIRS, ['/home/pi', '/tmp', '/opt/task-manager']),
-  devMode: process.env.SECURITY_DEV_MODE !== 'false',
+  devMode: process.env.SECURITY_DEV_MODE === 'true' && process.env.NODE_ENV !== 'production',
   apiKey: process.env.API_KEY || 'dev-task-manager-key-change-in-production',
   jwtSecret: process.env.JWT_SECRET || 'dev_jwt_secret_change_in_production_123456',
   jwtExpirationHours: parseInt(process.env.JWT_EXPIRATION_HOURS, 10) || 24,
