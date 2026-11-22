@@ -51,7 +51,7 @@ class ProcessOrchestrator {
         resource_id: result.pid,
         status: 'SUCCESS',
         request_id: reqId,
-        details: { command: options.command, args: options.args, pid: result.pid },
+        details: { command: options.command, args: options.arguments || options.args, pid: result.pid },
       }, reqId);
 
       return result;

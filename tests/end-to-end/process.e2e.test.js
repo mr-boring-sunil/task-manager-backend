@@ -3,6 +3,11 @@
  * Raspberry Pi Task Manager — Unified Backend
  */
 
+// ⚠ Set env vars BEFORE any require() so security.config.js reads the correct values.
+// Disabling devMode ensures unauthenticated requests correctly return 401.
+process.env.SECURITY_DEV_MODE = 'false';
+process.env.NODE_ENV = 'test';
+
 const request = require('supertest');
 const createApp = require('../../app');
 const dse = require('../../engines/database-security-engine');
@@ -13,11 +18,14 @@ const { mockProcesses } = require('../mocks/systeminformation.mock');
 
 jest.mock('systeminformation');
 
+// The default dev API key (from security.config.js)
+const TEST_API_KEY = 'dev-task-manager-key-change-in-production';
+
 describe('Process REST API End-to-End', () => {
   let app;
 
   beforeAll(async () => {
-    process.env.NODE_ENV = 'test';
+    // env vars set at module top (before require) so security.config picks them up.
     await dse.init(':memory:');
     await se.init();
     await cee.init(se.interface, dse.interface);
@@ -94,9 +102,23 @@ describe('Process REST API End-to-End', () => {
   });
 
   describe('POST /api/v1/processes', () => {
+    // BUG FIX: Authenticated routes require an API key header.
+    // Previously these tests sent no credentials and received 401 instead of the
+    // expected 201/403/422 responses, causing the entire create-process test suite to fail.
+
+    test('returns 401 Unauthorized when no credentials are provided', async () => {
+      const res = await request(app)
+        .post('/api/v1/processes')
+        .send({ command: 'node', arguments: ['-v'] })
+        .expect(401);
+
+      expect(res.body.success).toBe(false);
+    });
+
     test('spawns permitted process from allowlist with 201 Created', async () => {
       const res = await request(app)
         .post('/api/v1/processes')
+        .set('x-api-key', TEST_API_KEY)
         .send({
           command: 'node',
           arguments: ['-v'],
@@ -108,9 +130,36 @@ describe('Process REST API End-to-End', () => {
       expect(res.body.data.status).toBe('running');
     });
 
+    test('spawns process without workingDirectory (omitting invalid default path)', async () => {
+      // BUG FIX: Sending an empty / absent workingDirectory must succeed.
+      // The old CreateProcessDialog default of '/home/pi' caused validateCwd() to
+      // throw ValidationError("Working directory does not exist") on non-Pi hosts.
+      const res = await request(app)
+        .post('/api/v1/processes')
+        .set('x-api-key', TEST_API_KEY)
+        .send({ command: 'node' })
+        .expect(201);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toHaveProperty('pid');
+      expect(res.body.data.name).toBe('node');
+    });
+
+    test('passes arguments array correctly to spawn', async () => {
+      const res = await request(app)
+        .post('/api/v1/processes')
+        .set('x-api-key', TEST_API_KEY)
+        .send({ command: 'node', arguments: ['-e', 'console.log(1)'] })
+        .expect(201);
+
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.command).toContain('node');
+    });
+
     test('returns 403 Forbidden for non-allowlisted command', async () => {
       const res = await request(app)
         .post('/api/v1/processes')
+        .set('x-api-key', TEST_API_KEY)
         .send({ command: 'disallowed_binary' })
         .expect(403);
 
@@ -121,32 +170,88 @@ describe('Process REST API End-to-End', () => {
     test('returns 422 for shell injection attempts', async () => {
       const res = await request(app)
         .post('/api/v1/processes')
+        .set('x-api-key', TEST_API_KEY)
         .send({ command: 'node; rm -rf /' })
         .expect(422);
 
       expect(res.body.success).toBe(false);
       expect(res.body.error.code).toBe('VALIDATION_ERROR');
     });
+
+    test('returns 422 when command field is missing', async () => {
+      const res = await request(app)
+        .post('/api/v1/processes')
+        .set('x-api-key', TEST_API_KEY)
+        .send({ arguments: ['-v'] })
+        .expect(422);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    test('returns 422 when arguments contain null bytes (control characters)', async () => {
+      const res = await request(app)
+        .post('/api/v1/processes')
+        .set('x-api-key', TEST_API_KEY)
+        .send({ command: 'node', arguments: ['arg\0injected'] })
+        .expect(422);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    });
+
+    test('returns 4xx when workingDirectory does not exist or is outside allowed dirs', async () => {
+      // On Linux/Pi:  validateCwd → fs.existsSync fails → ValidationError → 422
+      // On Windows:   allowedDirs check fires first (path not in [/home/pi, /tmp, …]) → ForbiddenError → 403
+      // Both are correct rejections of an invalid path.
+      const res = await request(app)
+        .post('/api/v1/processes')
+        .set('x-api-key', TEST_API_KEY)
+        .send({ command: 'node', workingDirectory: '/this/path/does/not/exist/at/all' });
+
+      expect([403, 422]).toContain(res.status);
+      expect(res.body.success).toBe(false);
+    });
   });
 
   describe('DELETE /api/v1/processes/:pid', () => {
+    test('returns 401 Unauthorized when no credentials are provided', async () => {
+      const res = await request(app).delete('/api/v1/processes/1001').expect(401);
+      expect(res.body.success).toBe(false);
+    });
+
     test('returns 403 Forbidden when targeting protected PID 1', async () => {
-      const res = await request(app).delete('/api/v1/processes/1').expect(403);
+      const res = await request(app)
+        .delete('/api/v1/processes/1')
+        .set('x-api-key', TEST_API_KEY)
+        .expect(403);
       expect(res.body.success).toBe(false);
       expect(res.body.error.code).toBe('PROTECTED_PROCESS');
     });
 
     test('returns 403 Forbidden when targeting server process.pid', async () => {
-      const res = await request(app).delete(`/api/v1/processes/${process.pid}`).expect(403);
+      const res = await request(app)
+        .delete(`/api/v1/processes/${process.pid}`)
+        .set('x-api-key', TEST_API_KEY)
+        .expect(403);
       expect(res.body.success).toBe(false);
       expect(res.body.error.code).toBe('PROTECTED_PROCESS');
     });
   });
 
   describe('PATCH /api/v1/processes/:pid/priority', () => {
+    test('returns 401 Unauthorized when no credentials are provided', async () => {
+      const res = await request(app)
+        .patch('/api/v1/processes/1001/priority')
+        .send({ priority: 5 })
+        .expect(401);
+      expect(res.body.success).toBe(false);
+    });
+
     test('returns 422 when priority is out of range', async () => {
       const res = await request(app)
         .patch('/api/v1/processes/1001/priority')
+        .set('x-api-key', TEST_API_KEY)
         .send({ priority: 30 })
         .expect(422);
 
