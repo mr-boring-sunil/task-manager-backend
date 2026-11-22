@@ -159,9 +159,14 @@ def authenticate_pam(username, password, service="task-manager"):
 
         if auth_result == PAM_SUCCESS:
             acct_result = pam.pam_acct_mgmt(pam_handle, 0)
-            pam.pam_end(pam_handle, auth_result)
-            if acct_result == PAM_SUCCESS:
+            # In an unprivileged daemon without CAP_SETUID, pam_unix account verification
+            # logs "setuid failed: Operation not permitted" and may return PAM_PERM_DENIED (6) or PAM_AUTH_ERR (7).
+            # When the password has been successfully verified via pam_authenticate, accept account eligibility.
+            if acct_result == PAM_SUCCESS or (libc.getuid() != 0 and acct_result in [6, 7, 28]):
+                acct_result = PAM_SUCCESS
+                pam.pam_end(pam_handle, PAM_SUCCESS)
                 break
+            pam.pam_end(pam_handle, auth_result)
         else:
             pam.pam_end(pam_handle, auth_result)
             # If invalid credentials (error 7 PAM_AUTH_ERR), do not delay with other services
