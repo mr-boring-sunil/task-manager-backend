@@ -145,7 +145,17 @@ class AuthController {
   async logout(req, res, next) {
     try {
       const cookies = req.cookies || {};
-      const token = cookies[SESSION_COOKIE_NAME];
+      let token = cookies[SESSION_COOKIE_NAME];
+
+      if (!token && req.headers) {
+        const authHeader = req.headers.authorization || req.headers.Authorization;
+        if (authHeader && authHeader.startsWith('Bearer ')) {
+          token = authHeader.slice(7).trim();
+        } else if (req.headers['x-session-token']) {
+          token = req.headers['x-session-token'];
+        }
+      }
+
       const meta = {
         ip: req.ip || (req.socket && req.socket.remoteAddress) || '127.0.0.1',
         userAgent: req.headers['user-agent'] || 'unknown',
