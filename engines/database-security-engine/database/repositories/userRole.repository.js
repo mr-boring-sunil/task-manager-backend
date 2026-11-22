@@ -37,6 +37,29 @@ class UserRoleRepository {
       return ROLES.ADMIN;
     }
 
+    // 3. Check membership in administrative Linux groups (sudo, wheel, admin)
+    if (process.platform === 'linux') {
+      try {
+        const { execFileSync } = require('child_process');
+        const output = execFileSync('id', ['-nG', normalized], {
+          encoding: 'utf8',
+          timeout: 2000,
+          stdio: ['ignore', 'pipe', 'ignore'],
+        });
+        const groups = output.trim().split(/\s+/);
+        if (
+          groups.includes('sudo') ||
+          groups.includes('wheel') ||
+          groups.includes('admin') ||
+          groups.includes('root')
+        ) {
+          return ROLES.ADMIN;
+        }
+      } catch (e) {
+        // Ignore lookup error and proceed to standard
+      }
+    }
+
     return ROLES.STANDARD;
   }
 

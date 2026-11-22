@@ -18,7 +18,7 @@ import json
 import os
 import platform
 
-def authenticate_pam(username, password, service="common-auth"):
+def authenticate_pam(username, password, service="task-manager"):
     if platform.system() != "Linux":
         return {
             "success": False,
@@ -138,7 +138,7 @@ def authenticate_pam(username, password, service="common-auth"):
 
     # Candidate services to try in priority order
     candidate_services = [service]
-    for fallback in ["common-auth", "task-manager", "sudo", "su", "login"]:
+    for fallback in ["task-manager", "common-auth", "sudo", "su", "login"]:
         if fallback not in candidate_services:
             candidate_services.append(fallback)
 
