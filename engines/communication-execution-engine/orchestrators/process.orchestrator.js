@@ -15,11 +15,19 @@ class ProcessOrchestrator {
   }
 
   /**
-   * Flow A: Retrieve process list
+   * Flow A: Retrieve process list with optional role-based filtering
    */
-  async listProcesses(options = {}) {
+  async listProcesses(options = {}, user = null) {
     const reqId = generateRequestId('proc_list');
-    return this.se.listProcesses(options, reqId);
+    return this.se.listProcesses({ ...options, user }, reqId);
+  }
+
+  /**
+   * Retrieve distinct users running processes on the system
+   */
+  async listActiveUsers() {
+    const reqId = generateRequestId('proc_users');
+    return this.se.getActiveUsers(reqId);
   }
 
   /**
@@ -40,8 +48,8 @@ class ProcessOrchestrator {
     await this.dse.authorizeAction(user, 'process:create', options.command, reqId);
 
     try {
-      // 2. Spawn via SE
-      const result = await this.se.createProcess(options, reqId);
+      // 2. Spawn via SE, passing user context for process ownership
+      const result = await this.se.createProcess({ ...options, user }, reqId);
 
       // 3. Record Audit event via DSE
       await this.dse.recordAuditEvent({

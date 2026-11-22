@@ -22,6 +22,12 @@ class SchedulingAdapter {
     }, requestId);
   }
 
+  async getActiveUsers(requestId = null) {
+    return interactionLogger.execute('CEE', 'SE', 'getActiveUsers', async () => {
+      return this.se.getActiveUsers();
+    }, requestId);
+  }
+
   async getProcess(pid, requestId = null) {
     return interactionLogger.execute('CEE', 'SE', 'getProcess', async () => {
       return this.se.getProcess(pid);

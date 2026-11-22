@@ -11,8 +11,12 @@ class ProcessService {
     this.orchestrator = orchestrator;
   }
 
-  async listProcesses(query = {}) {
-    return this.orchestrator.listProcesses(query);
+  async listProcesses(query = {}, user = null) {
+    return this.orchestrator.listProcesses(query, user);
+  }
+
+  async listActiveUsers() {
+    return this.orchestrator.listActiveUsers();
   }
 
   async getProcess(pid) {

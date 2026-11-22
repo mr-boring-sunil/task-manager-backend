@@ -12,24 +12,68 @@ const { ERROR_CODES } = require('../../../../shared/errors/errorCodes');
 
 class ProcessLifecycle {
   /**
-   * Spawn a new background process
+   * Spawn a new background process, optionally running under targetUsername's identity
    * @param {string} command
    * @param {string[]} args
    * @param {string|null} cwd
    * @param {object} env
+   * @param {string|null} targetUsername
    * @returns {Promise<{ pid: number, name: string, command: string, status: string, startTime: string }>}
    */
-  async spawnProcess(command, args = [], cwd = null, env = {}) {
+  async spawnProcess(command, args = [], cwd = null, env = {}, targetUsername = null) {
     return new Promise((resolve, reject) => {
       try {
         const combinedEnv = { ...process.env, ...env };
-        const child = spawn(command, args, {
-          cwd: cwd || process.cwd(),
+
+        // Look up Linux UID and GID for the target user if running on Linux
+        let userUid = null;
+        let userGid = null;
+
+        if (
+          targetUsername &&
+          process.platform === 'linux' &&
+          /^[a-zA-Z0-9_\-\.]+$/.test(targetUsername)
+        ) {
+          try {
+            const { execFileSync } = require('child_process');
+            const uStr = execFileSync('id', ['-u', targetUsername], {
+              encoding: 'utf8',
+              timeout: 1500,
+              stdio: ['ignore', 'pipe', 'ignore'],
+            }).trim();
+            const gStr = execFileSync('id', ['-g', targetUsername], {
+              encoding: 'utf8',
+              timeout: 1500,
+              stdio: ['ignore', 'pipe', 'ignore'],
+            }).trim();
+            const parsedUid = parseInt(uStr, 10);
+            const parsedGid = parseInt(gStr, 10);
+            if (!Number.isNaN(parsedUid) && !Number.isNaN(parsedGid)) {
+              userUid = parsedUid;
+              userGid = parsedGid;
+              combinedEnv.USER = targetUsername;
+              combinedEnv.LOGNAME = targetUsername;
+              combinedEnv.HOME = targetUsername === 'root' ? '/root' : `/home/${targetUsername}`;
+            }
+          } catch (idErr) {
+            // Non-fatal: if lookup fails, proceed with default execution context
+          }
+        }
+
+        const spawnOpts = {
+          cwd: cwd || (userUid !== null && combinedEnv.HOME ? combinedEnv.HOME : process.cwd()),
           env: combinedEnv,
           shell: false, // Security: Never execute through shell
           detached: true,
           stdio: ['ignore', 'pipe', 'pipe'],
-        });
+        };
+
+        if (userUid !== null && userGid !== null) {
+          spawnOpts.uid = userUid;
+          spawnOpts.gid = userGid;
+        }
+
+        const child = spawn(command, args, spawnOpts);
 
         child.on('error', (err) => {
           reject(
@@ -37,7 +81,7 @@ class ProcessLifecycle {
               `Failed to start process '${command}': ${err.message}`,
               500,
               ERROR_CODES.PROCESS_SPAWN_FAILED,
-              { command, args, error: err.message }
+              { command, args, error: err.message, targetUser: targetUsername }
             )
           );
         });
@@ -45,9 +89,8 @@ class ProcessLifecycle {
         if (child.pid) {
           child.unref(); // Detach from parent
 
-          // FIX: Wait briefly so the OS registers the new PID in /proc before
-          // the caller queries the process list. Without this delay, si.processes()
-          // returns a snapshot that pre-dates the new entry.
+          // Wait briefly so the OS registers the new PID in /proc before
+          // the caller queries the process list.
           const spawnResult = {
             pid: child.pid,
             name: command,

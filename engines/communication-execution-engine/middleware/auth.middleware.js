@@ -44,6 +44,24 @@ const authenticate = async (req, res, next) => {
 };
 
 /**
+ * Optional authentication: populates req.user if valid credentials exist,
+ * but allows unauthenticated requests to continue with req.user = null.
+ */
+const optionalAuthenticate = async (req, res, next) => {
+  try {
+    if (!req.cookies && req.headers.cookie) {
+      req.cookies = parseCookies(req.headers.cookie);
+    }
+
+    const user = await securityAdapter.authenticateUser(req);
+    req.user = user;
+  } catch (err) {
+    req.user = null;
+  }
+  next();
+};
+
+/**
  * Require a specific permission for the endpoint
  * @param {string} permission - e.g. 'process.terminate'
  */
@@ -113,6 +131,7 @@ const verifyCsrf = (req, res, next) => {
 
 module.exports = {
   authenticate,
+  optionalAuthenticate,
   requireAuthentication: authenticate,
   authorize,
   requirePermission: authorize,

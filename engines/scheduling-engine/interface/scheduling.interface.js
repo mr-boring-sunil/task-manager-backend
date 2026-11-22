@@ -14,6 +14,11 @@ class SchedulingEngineInterface {
     return processManager.listProcesses(options);
   }
 
+  async getActiveUsers() {
+    seLogger.debug('getActiveUsers invoked');
+    return processManager.getActiveUsers();
+  }
+
   async getProcess(pid) {
     seLogger.debug('getProcess invoked', { pid });
     return processManager.getProcess(pid);

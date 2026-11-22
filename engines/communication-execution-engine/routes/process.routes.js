@@ -16,10 +16,15 @@ const {
   validateProcessListQuery,
 } = require('../middleware/validation.middleware');
 const { mutationRateLimiter } = require('../middleware/rate-limit.middleware');
-const { authenticate, authorize } = require('../middleware/auth.middleware');
+const { authenticate, authorize, optionalAuthenticate } = require('../middleware/auth.middleware');
+
+// GET /api/v1/processes/users - Distinct list of active users running processes
+router.get('/users', optionalAuthenticate, (req, res, next) => {
+  processController.listActiveUsers(req, res, next);
+});
 
 // GET /api/v1/processes - List processes with filtering & pagination
-router.get('/', validateProcessListQuery, (req, res, next) => {
+router.get('/', optionalAuthenticate, validateProcessListQuery, (req, res, next) => {
   processController.listProcesses(req, res, next);
 });
 

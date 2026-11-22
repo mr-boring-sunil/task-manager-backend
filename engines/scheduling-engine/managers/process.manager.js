@@ -16,7 +16,7 @@ class ProcessManager {
    * @param {object} options
    */
   async listProcesses(options = {}) {
-    const { username, state, search, sortBy, order, page, limit } = options;
+    const { username, state, search, sortBy, order, page, limit, user } = options;
 
     let validPage = parseInt(page, 10);
     let validLimit = parseInt(limit, 10);
@@ -31,9 +31,22 @@ class ProcessManager {
 
     const allProcesses = await processInfo.getAllProcesses();
 
+    // Distinct list of all active users running processes on the system
+    const activeUsers = Array.from(
+      new Set(allProcesses.map((p) => p.username).filter(Boolean))
+    ).sort();
+
+    // Role-based visibility:
+    // Non-admin (standard) users can ONLY see their own processes.
+    // Admins can see all processes or optionally filter by any user.
+    let targetUsername = username;
+    if (user && user.role !== 'admin' && user.username) {
+      targetUsername = user.username;
+    }
+
     // 1. Filtering
     let filtered = allProcesses.filter((proc) => {
-      if (username && proc.username.toLowerCase() !== username.toLowerCase()) {
+      if (targetUsername && proc.username.toLowerCase() !== targetUsername.toLowerCase()) {
         return false;
       }
       if (state && proc.state.toLowerCase() !== state.toLowerCase()) {
@@ -43,7 +56,8 @@ class ProcessManager {
         const searchTerm = search.toLowerCase();
         const matchesName = (proc.name || '').toLowerCase().includes(searchTerm);
         const matchesCmd = (proc.command || '').toLowerCase().includes(searchTerm);
-        if (!matchesName && !matchesCmd) return false;
+        const matchesPid = String(proc.pid).includes(searchTerm);
+        if (!matchesName && !matchesCmd && !matchesPid) return false;
       }
       return true;
     });
@@ -81,7 +95,18 @@ class ProcessManager {
         hasNextPage: validPage < totalPages,
         hasPrevPage: validPage > 1,
       },
+      users: activeUsers,
     };
+  }
+
+  /**
+   * Get distinct list of all users currently running processes
+   */
+  async getActiveUsers() {
+    const allProcesses = await processInfo.getAllProcesses();
+    return Array.from(
+      new Set(allProcesses.map((p) => p.username).filter(Boolean))
+    ).sort();
   }
 
   /**
@@ -94,18 +119,21 @@ class ProcessManager {
   }
 
   /**
-   * Create process subject to security policy
+   * Create process subject to security policy and user identity
    * @param {object} options
    */
   async createProcess(options = {}) {
-    const { command, arguments: rawArgs, args: altArgs, workingDirectory, cwd: altCwd, env: rawEnv } = options;
+    const { command, arguments: rawArgs, args: altArgs, workingDirectory, cwd: altCwd, env: rawEnv, user } = options;
 
     const validCommand = validator.validateCommand(command);
     const validArgs = validator.validateArgs(rawArgs || altArgs || []);
     const validCwd = validator.validateCwd(workingDirectory || altCwd);
     const validEnv = validator.validateEnv(rawEnv);
 
-    return processLifecycle.spawnProcess(validCommand, validArgs, validCwd, validEnv);
+    // Target username: run as the authenticated user who requested the spawn
+    const targetUsername = user && user.username ? user.username : null;
+
+    return processLifecycle.spawnProcess(validCommand, validArgs, validCwd, validEnv, targetUsername);
   }
 
   /**

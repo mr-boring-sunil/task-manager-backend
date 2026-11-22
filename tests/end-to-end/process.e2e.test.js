@@ -259,4 +259,26 @@ describe('Process REST API End-to-End', () => {
       expect(res.body.error.code).toBe('VALIDATION_ERROR');
     });
   });
+
+  describe('GET /api/v1/processes/users and activeUsers metadata', () => {
+    test('GET /api/v1/processes includes users array in data', async () => {
+      const res = await request(app)
+        .get('/api/v1/processes?limit=10&page=1')
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(Array.isArray(res.body.data.users)).toBe(true);
+      expect(res.body.data.users.length).toBeGreaterThan(0);
+    });
+
+    test('GET /api/v1/processes/users returns distinct active system users', async () => {
+      const res = await request(app)
+        .get('/api/v1/processes/users')
+        .expect(200);
+
+      expect(res.body.success).toBe(true);
+      expect(Array.isArray(res.body.data.users)).toBe(true);
+      expect(res.body.data.users.length).toBeGreaterThan(0);
+    });
+  });
 });

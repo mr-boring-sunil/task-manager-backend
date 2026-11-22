@@ -17,6 +17,7 @@ module.exports = {
   interface: schedulingInterface,
   // Direct export of interface methods for convenient direct JS calls
   listProcesses: (options) => schedulingInterface.listProcesses(options),
+  getActiveUsers: () => schedulingInterface.getActiveUsers(),
   getProcess: (pid) => schedulingInterface.getProcess(pid),
   createProcess: (options) => schedulingInterface.createProcess(options),
   terminateProcess: (pid, options) => schedulingInterface.terminateProcess(pid, options),

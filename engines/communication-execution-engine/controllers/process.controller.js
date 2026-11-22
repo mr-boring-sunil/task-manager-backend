@@ -11,8 +11,17 @@ const { HTTP_STATUS } = require('../../../shared/errors/errorCodes');
 class ProcessController {
   async listProcesses(req, res, next) {
     try {
-      const result = await processService.listProcesses(req.query);
+      const result = await processService.listProcesses(req.query, req.user);
       return sendSuccess(res, result, 'Processes retrieved successfully', HTTP_STATUS.OK);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async listActiveUsers(req, res, next) {
+    try {
+      const users = await processService.listActiveUsers();
+      return sendSuccess(res, { users }, 'Active process users retrieved successfully', HTTP_STATUS.OK);
     } catch (err) {
       next(err);
     }
